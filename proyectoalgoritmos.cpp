@@ -38,13 +38,21 @@ Salon *buscarSalonConCapacidad(Edificio &edificio) {
   }
   return nullptr;
 }
-
 Edificio *buscarEdificioCercano(const Estudiante &estudiante,
-                                std::vector<Edificio> &edificios) {
+                                std::vector<Edificio> &edificios,
+                                const std::vector<int> &edificiosEvitar = {}) {
   Edificio *edificio_mas_cercano = nullptr;
   double menor_distancia = std::numeric_limits<double>::max();
 
-  for (Edificio &edificio : edificios) {
+  for (int i = 0; i < edificios.size(); i++) {
+    Edificio &edificio = edificios[i];
+
+    // Verificamos si el edificio está en la lista de edificios a evitar
+    if (std::find(edificiosEvitar.begin(), edificiosEvitar.end(), i) !=
+        edificiosEvitar.end()) {
+      continue; // Saltamos este edificio
+    }
+
     if (edificio.localidad == estudiante.localidad) {
       double dist =
           distancia(estudiante.x, estudiante.y, edificio.x, edificio.y);
@@ -56,6 +64,7 @@ Edificio *buscarEdificioCercano(const Estudiante &estudiante,
   }
   return edificio_mas_cercano;
 }
+
 void reasignarEstudiantes(std::vector<Estudiante> &estudiantes_pendientes,
                           std::vector<Edificio> &edificios) {
   for (Estudiante &estudiante : estudiantes_pendientes) {
@@ -63,10 +72,17 @@ void reasignarEstudiantes(std::vector<Estudiante> &estudiantes_pendientes,
     if (edificio_asignado) {
       Salon *salon_asignado = buscarSalonConCapacidad(*edificio_asignado);
       salon_asignado->estudiantes_asignados.push_back(estudiante);
+
+      // Mensaje de asignación
+      std::cout << "El estudiante " << estudiante.nombre
+                << " ha sido asignado al edificio en "
+                << edificio_asignado->localidad
+                << " y al salón con capacidad ideal de "
+                << salon_asignado->capacidad_ideal << ".\n";
     } else {
-      // Aquí, si no hay edificios disponible
+      // Mensaje de no disponibilidad
       std::cout << "No hay edificios disponibles para el estudiante "
-                << estudiante.nombre << "\n";
+                << estudiante.nombre << ".\n";
     }
   }
 }
@@ -87,6 +103,9 @@ void validarEdificios(std::vector<Edificio> &edificios,
     if (totalEstudiantes <
         capacidadTotalEdificio *
             0.5) { // Suponemos 50% como umbral, pero esto puede ajustarse
+      std::cout << "El edificio en " << edificio.localidad
+                << " no cumple con el umbral de eficiencia.\n"
+                << "Reubicando estudiantes...\n";
       for (Salon &salon : edificio.salones) {
         while (!salon.estudiantes_asignados.empty()) {
           estudiantes_pendientes.push_back(salon.estudiantes_asignados.back());
@@ -98,7 +117,12 @@ void validarEdificios(std::vector<Edificio> &edificios,
 
   // Una vez movidos todos los estudiantes de edificios no eficientes,
   // reasignamos
-  reasignarEstudiantes(estudiantes_pendientes, edificios);
+  if (!estudiantes_pendientes.empty()) {
+    std::cout << "Iniciando proceso de reasignación...\n";
+    reasignarEstudiantes(estudiantes_pendientes, edificios);
+  } else {
+    std::cout << "Todos los edificios cumplen con el umbral de eficiencia.\n";
+  }
 }
 
 void ingresarEstudiante(std::vector<Estudiante> &estudiantes) {
@@ -141,26 +165,50 @@ void ingresarEdificio(std::vector<Edificio> &edificios) {
   edificios.push_back(edificio);
 }
 
+std::vector<int> edificiosPorDebajoDelUmbral(std::vector<Edificio> &edificios) {
+  std::vector<int> indices;
+  for (int i = 0; i < edificios.size(); i++) {
+    int totalEstudiantes = 0;
+    for (const Salon &salon : edificios[i].salones) {
+      totalEstudiantes += salon.estudiantes_asignados.size();
+    }
+
+    int capacidadTotalEdificio = 0;
+    for (const Salon &salon : edificios[i].salones) {
+      capacidadTotalEdificio += salon.capacidad_ideal;
+    }
+
+    if (totalEstudiantes < capacidadTotalEdificio * 0.5) {
+      indices.push_back(i);
+    }
+  }
+  return indices;
+}
+
+void mostrarAsignaciones(const std::vector<Edificio> &edificios) {
+  for (const Edificio &edificio : edificios) {
+    std::cout << "Edificio en localidad: " << edificio.localidad << "\n";
+    for (const Salon &salon : edificio.salones) {
+      std::cout << "  Salon con capacidad ideal: " << salon.capacidad_ideal
+                << "\n";
+      std::cout << "  Estudiantes asignados:\n";
+
+      if (salon.estudiantes_asignados.empty()) {
+        std::cout << "    Ninguno.\n";
+      } else {
+        for (const Estudiante &estudiante : salon.estudiantes_asignados) {
+          std::cout << "    - " << estudiante.nombre << "\n";
+        }
+      }
+      std::cout << "\n"; // Línea adicional para mejor visualización.
+    }
+  }
+}
 
 int main() {
   std::vector<Edificio> edificios;
   std::vector<Estudiante> estudiantes;
   std::vector<Estudiante> estudiantes_pendientes;
-
-  // Asignación inicial de estudiantes a edificios:
-  for (Estudiante &estudiante : estudiantes) {
-    Edificio *edificio_asignado = buscarEdificioCercano(estudiante, edificios);
-    if (edificio_asignado) {
-      Salon *salon_asignado = buscarSalonConCapacidad(*edificio_asignado);
-      salon_asignado->estudiantes_asignados.push_back(estudiante);
-    } else {
-      estudiantes_pendientes.push_back(estudiante);
-    }
-  }
-
-  // Validar edificios y reasignar si es necesario
-  validarEdificios(edificios, estudiantes_pendientes);
-
 
   int opcion;
   do {
@@ -169,7 +217,8 @@ int main() {
     std::cout << "2. Ingresar edificio.\n";
     std::cout << "3. Asignar estudiantes a edificios.\n";
     std::cout << "4. Mostrar estudiantes pendientes.\n";
-    std::cout << "5. Salir.\n";
+    std::cout << "5. Mostrar asignaciones.\n";
+    std::cout << "6. Salir.\n";
     std::cout << "Seleccione una opción: ";
     std::cin >> opcion;
 
@@ -193,6 +242,8 @@ int main() {
         }
       }
 
+      std::cout << "Finalizado el proceso inicial de asignación.\n";
+
       // Validar edificios y reasignar si es necesario
       validarEdificios(edificios, estudiantes_pendientes);
       break;
@@ -203,6 +254,9 @@ int main() {
       }
       break;
     case 5:
+      mostrarAsignaciones(edificios);
+      break;
+    case 6:
       std::cout << "Saliendo...\n";
       break;
     default:
@@ -210,7 +264,7 @@ int main() {
       break;
     }
 
-  } while (opcion != 5);
+  } while (opcion != 6);
 
   return 0;
 }
